@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // Global variables
+      let numParticles = 10;
+      const particleSize = 10;
+      let particles;
+      let fixedDistances;
+      let maxVSlider;
+      let showConnections = true;
+      let showDistanceDeviation = true;
+      let toggleButton;
+
+      function resetSimulation() {
+        particles = [];
+        fixedDistances = new Map();
+        // Initialize particles
+        for (let i = 0; i < numParticles; i++) {
+          const particle = new Particle(random(width), random(height), []);
+          particles.push(particle);
+        }
+
+        // Assign buddies and store initial distances
+        for (const particle of particles) {
+          const buddies = [];
+          while (buddies.length < 2) {
+            const potentialBuddy = random(particles);
+            if (
+              potentialBuddy !== particle &&
+              !buddies.includes(potentialBuddy)
+            ) {
+              buddies.push(potentialBuddy);
+            }
+          }
+          particle.buddies = buddies;
+        }
+      }
+
+      function setup() {
+        createCanvas(windowWidth, windowHeight);
+
+        const maxVLabel = createSpan("Max speed:");
+        maxVLabel.position(10, 10);
+        maxVSlider = createSlider(0, 1000, 200);
+        maxVSlider.position(10, 30);
+
+        const frictionLabel = createSpan("Friction:");
+        frictionLabel.position(10, 60);
+        frictionSlider = createSlider(0, 100, 10);
+        frictionSlider.position(10, 80);
+
+        const particleNumberLabel = createSpan("Number of particles:");
+        particleNumberLabel.position(10, 110);
+        particleNumberInput = createInput(numParticles, "number");
+        particleNumberInput.position(10, 130);
+        particleNumberInput.input(changeParticleNumber);
+
+        toggleButton = createButton("Toggle Connections");
+        toggleButton.position(10, 160);
+        toggleButton.mousePressed(toggleConnections);
+
+        toggleDistances = createButton("Toggle Distances");
+        toggleDistances.position(10, 190);
+        toggleDistances.mousePressed(toggleDistanceDisplay);
+
+        resetButton = createButton("Reset");
+        resetButton.position(10, 220);
+        resetButton.mousePressed(resetSimulation);
+
+        resetSimulation();
+      }
+
+      function changeParticleNumber() {
+        numParticles = constrain(this.value(), 3, 1000);
+        resetSimulation();
+      }
+
+      function windowResized() {
+        resizeCanvas(windowWidth, windowHeight);
+      }
+
+      function toggleConnections() {
+        showConnections = !showConnections;
+      }
+
+      function toggleDistanceDisplay() {
+        showDistanceDeviation = !showDistanceDeviation;
+      }
+
+      function draw() {
+        background(240);
+
+        // Update and display particles
+        const maxV = sqrt(maxVSlider.value() / 300);
+        const friction = 1 - frictionSlider.value() / 100;
+        for (const particle of particles) {
+          particle.applyEqualDistanceConstraint(maxV);
+          particle.update(friction);
+          particle.checkWalls();
+          particle.display();
+        }
+
+        // Display buddy connections
+        if (showConnections) {
+          for (const particle of particles) {
+            particle.displayBuddyConnection();
+          }
+        }
+        if (showDistanceDeviation) {
+          // Calculate the total distance deviation
+          let totalDistanceDeviation = 0;
+          for (const particle of particles) {
+            totalDistanceDeviation += particle.distanceDeviation();
+          }
+
+          // Display the total distance deviation
+          textSize(16);
+          textAlign(RIGHT, BOTTOM);
+          fill(0);
+          noStroke();
+          text(
+            "Total Distance Deviation: " + totalDistanceDeviation.toFixed(2),
+            width - 10,
+            height - 10
+          );
+        }
+      }
+
+      class Particle {
+        constructor(x, y, buddies) {
+          this.pos = createVector(x, y);
+          this.vel = createVector(0, 0);
+          this.buddies = buddies;
+        }
+
+        update(friction) {
+          this.vel.mult(friction);
+          this.pos.add(this.vel);
+        }
+
+        checkWalls() {
+          const halfSize = particleSize / 2;
+          if (this.pos.x - halfSize < 0 || this.pos.x + halfSize > width) {
+            this.vel.x *= -1;
+            this.pos.x = constrain(this.pos.x, halfSize, width - halfSize);
+          }
+          if (this.pos.y - halfSize < 0 || this.pos.y + halfSize > height) {
+            this.vel.y *= -1;
+            this.pos.y = constrain(this.pos.y, halfSize, height - halfSize);
+          }
+        }
+
+        applyEqualDistanceConstraint(maxV) {
+          const force1 = p5.Vector.sub(this.buddies[0].pos, this.pos);
+          const force2 = p5.Vector.sub(this.buddies[1].pos, this.pos);
+
+          const distance1 = force1.mag();
+          const distance2 = force2.mag();
+
+          const avgDistance = (distance1 + distance2) / 2;
+
+          force1.normalize();
+          force1.mult((distance1 - avgDistance) * 0.5);
+          force2.normalize();
+          force2.mult((distance2 - avgDistance) * 0.5);
+
+          this.vel.add(force1);
+          this.vel.add(force2);
+
+          this.vel.limit(maxV);
+        }
+
+        display() {
+          fill(100, 200, 255);
+          noStroke();
+          ellipse(this.pos.x, this.pos.y, particleSize);
+        }
+
+        displayBuddyConnection() {
+          stroke(100, 150, 200, 100);
+          for (const buddy of this.buddies) {
+            line(this.pos.x, this.pos.y, buddy.pos.x, buddy.pos.y);
+            const vec = p5.Vector.sub(buddy.pos, this.pos);
+            const base = p5.Vector.add(this.pos, vec.normalize().mult(20)); // Move the base slightly away from the particle
+            drawArrow(base, vec.mult(0.8), color(100, 150, 200, 100)); // Draw the arrow with a shorter vector
+          }
+        }
+
+        distanceDeviation() {
+          const distance1 = p5.Vector.dist(this.pos, this.buddies[0].pos);
+          const distance2 = p5.Vector.dist(this.pos, this.buddies[1].pos);
+          const avgDistance = (distance1 + distance2) / 2;
+          return (
+            Math.abs(distance1 - avgDistance) +
+            Math.abs(distance2 - avgDistance)
+          );
+        }
+      }
+
+      function drawArrow(base, vec, myColor) {
+        push();
+        stroke(myColor);
+        strokeWeight(3);
+        fill(myColor);
+        translate(base.x, base.y);
+        rotate(vec.heading());
+        const arrowSize = 4;
+        triangle(0, arrowSize / 2, 0, -arrowSize / 2, arrowSize, 0);
+        pop();
+      }
+    </script>
+  </body>
+</html>
